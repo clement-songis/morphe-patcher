@@ -29,6 +29,17 @@ enum class BytecodeMode {
     STRIP_SAFE,
 
     /**
+     * Decode all DEX files, but generate new DEX files only for modified/new classes, leaving the
+     * original DEX files completely untouched.
+     *
+     * Unlike the strip modes, nothing is removed from the originals, so the result is not a
+     * self-contained APK. The generated DEX files only make sense when they are given precedence
+     * over the originals, such as when they are prepended to a running app's class loader, where
+     * class resolution is first-match-wins and the delta shadows the original definitions.
+     */
+    DELTA,
+
+    /**
      * Do not decode or compile any bytecode.
      */
     NONE,

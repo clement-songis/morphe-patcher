@@ -310,6 +310,7 @@ class BytecodePatchContext internal constructor(private val config: PatcherConfi
             BytecodeMode.FULL -> compileFull()
             BytecodeMode.STRIP_FAST -> compileStripFast()
             BytecodeMode.STRIP_SAFE -> compileStripSafe()
+            BytecodeMode.DELTA -> compileDelta()
         }
     }
 
@@ -480,6 +481,39 @@ class BytecodePatchContext internal constructor(private val config: PatcherConfi
         }
 
         return results
+    }
+
+    /**
+     * [BytecodeMode.DELTA]: Write only modified and new classes to DEX files, leaving the original
+     * DEX files completely untouched.
+     *
+     * Nothing is stripped from the originals and nothing is copied into the output, so the result
+     * is not a self-contained APK. It is only meaningful when the returned DEX files take
+     * precedence over the originals, such as when they are prepended to a running app's class
+     * loader: resolution is first-match-wins, so the delta shadows the original definitions.
+     */
+    private fun compileDelta(): Set<PatcherResult.PatchedDexFile> {
+        val (_, classesForNewDex) = getModifiedOriginalDescriptorsAndClassesForNewDex()
+
+        patchClasses.close()
+
+        dexOutputDir.apply { deleteRecursively(); mkdirs() }
+
+        if (classesForNewDex.isNotEmpty()) {
+            logger.info("Writing ${classesForNewDex.size} modified/new classes to delta DEX files")
+            DexReadWrite.writeMultiDexFile(dexOutputDir, classesForNewDex, opcodes, -1, logger)
+        } else {
+            logger.info("No classes were modified or added, the delta is empty")
+        }
+
+        // Release the original mappings without writing them back, leaving those files as they are.
+        releaseAllDexMappings()
+
+        config.verifier.verifyDexDirectory(dexOutputDir)
+
+        return dexOutputDir.listFiles { it.isFile }!!.sorted().map {
+            PatcherResult.PatchedDexFile(it.name, it.inputStream())
+        }.toSet()
     }
 
      private fun getModifiedOriginalDescriptorsAndClassesForNewDex(): Pair<HashSet<String>, MutableList<ClassDef>> {
